@@ -48,11 +48,12 @@ function App() {
         try { data = JSON.parse(text); } catch { data = { message: text }; }
       }
 
-      if (response.ok && data.download_url) {
+      if (response.ok && (data.download_url || data.download_path)) {
+        const url = data.download_url || (data.download_path ? `/api${data.download_path}` : undefined);
         setResult({
           status: 'success',
           message: '视频处理完成！',
-          downloadUrl: data.download_url,
+          downloadUrl: url,
         });
       } else {
         setResult({

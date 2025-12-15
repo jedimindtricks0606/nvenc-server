@@ -77,8 +77,8 @@ def upload():
         return jsonify({"status": "error", "message": "execution failed", "detail": str(e)}), 500
     if r.returncode != 0:
         return jsonify({"status": "error", "message": "ffmpeg failed", "stdout": r.stdout, "stderr": r.stderr, "code": r.returncode}), 500
-    url = url_for("download", job_id=job_id, filename=output_path.name, _external=True)
-    return jsonify({"status": "success", "message": "ok", "job_id": job_id, "input": input_path.name, "output": output_path.name, "download_url": url})
+    download_path = url_for("download", job_id=job_id, filename=output_path.name)
+    return jsonify({"status": "success", "message": "ok", "job_id": job_id, "input": input_path.name, "output": output_path.name, "download_path": download_path})
 
 @app.route("/download/<job_id>/<filename>", methods=["GET"])
 def download(job_id, filename):
