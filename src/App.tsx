@@ -50,15 +50,17 @@ function App() {
 
       if (response.ok && (data.download_url || data.download_path)) {
         const url = data.download_url || (data.download_path ? `/api${data.download_path}` : undefined);
+        const ms = typeof data.duration_ms === 'number' ? data.duration_ms : undefined;
+        const secText = ms !== undefined ? `耗时 ${(ms / 1000).toFixed(2)}s` : '';
         setResult({
           status: 'success',
-          message: '视频处理完成！',
+          message: secText ? `视频处理完成！${secText}` : '视频处理完成！',
           downloadUrl: url,
         });
       } else {
         setResult({
           status: 'error',
-          message: data.message || data.error || `处理失败 (HTTP ${response.status})`,
+          message: (data.message && typeof data.duration_ms === 'number' ? `${data.message}，耗时 ${(data.duration_ms / 1000).toFixed(2)}s` : data.message) || data.error || `处理失败 (HTTP ${response.status})`,
         });
       }
     } catch (error) {

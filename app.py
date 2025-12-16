@@ -2,6 +2,7 @@ import os
 import uuid
 import shlex
 import subprocess
+import time
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory, url_for
 from flask_cors import CORS
@@ -62,6 +63,7 @@ def upload():
         return jsonify({"status": "error", "message": "invalid command, require ffmpeg with {input} and {output}"}), 400
     output_filename = request.form.get("output_filename") or (request.json.get("output_filename") if request.is_json else None) or "output.mp4"
     job_id, job_dir = make_job_dir()
+    print(f"[upload] received command: {command}")
     original = secure_filename(file.filename)
     ext = Path(original).suffix or ".mp4"
     input_name = f"input{ext}"
@@ -72,13 +74,19 @@ def upload():
     if not cmd:
         return jsonify({"status": "error", "message": "failed to build command"}), 400
     try:
+        print(f"[upload] executing: {shlex.join(cmd)}")
+    except Exception:
+        print(f"[upload] executing: {' '.join(cmd)}")
+    try:
+        start = time.perf_counter()
         r = subprocess.run(cmd, capture_output=True, text=True)
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
     except Exception as e:
         return jsonify({"status": "error", "message": "execution failed", "detail": str(e)}), 500
     if r.returncode != 0:
-        return jsonify({"status": "error", "message": "ffmpeg failed", "stdout": r.stdout, "stderr": r.stderr, "code": r.returncode}), 500
+        return jsonify({"status": "error", "message": "ffmpeg failed", "stdout": r.stdout, "stderr": r.stderr, "code": r.returncode, "duration_ms": elapsed_ms}), 500
     download_path = url_for("download", job_id=job_id, filename=output_path.name)
-    return jsonify({"status": "success", "message": "ok", "job_id": job_id, "input": input_path.name, "output": output_path.name, "download_path": download_path})
+    return jsonify({"status": "success", "message": "ok", "job_id": job_id, "input": input_path.name, "output": output_path.name, "download_path": download_path, "duration_ms": elapsed_ms})
 
 @app.route("/download/<job_id>/<filename>", methods=["GET"])
 def download(job_id, filename):
