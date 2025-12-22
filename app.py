@@ -3,6 +3,7 @@ import uuid
 import shlex
 import subprocess
 import time
+import threading
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory, url_for
 from flask_cors import CORS
@@ -13,6 +14,7 @@ ensure_storage_root()
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
+EXEC_LOCK = threading.Semaphore(1)
 
 def make_job_dir():
     job_id = uuid.uuid4().hex
@@ -86,9 +88,10 @@ def upload():
     except Exception:
         print(f"[upload] executing: {' '.join(cmd)}")
     try:
-        start = time.perf_counter()
-        r = subprocess.run(cmd, capture_output=True, text=True)
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        with EXEC_LOCK:
+            start = time.perf_counter()
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
     except Exception as e:
         return jsonify({"status": "error", "message": "execution failed", "detail": str(e)}), 500
     if r.returncode != 0:
@@ -137,9 +140,10 @@ def process():
     except Exception:
         print(f"[process] job={job_id} executing: {' '.join(cmd)}")
     try:
-        start = time.perf_counter()
-        r = subprocess.run(cmd, capture_output=True, text=True)
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        with EXEC_LOCK:
+            start = time.perf_counter()
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
     except Exception as e:
         return jsonify({"status": "error", "message": "execution failed", "detail": str(e)}), 500
     if r.returncode != 0:
