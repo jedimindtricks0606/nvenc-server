@@ -22,6 +22,10 @@ from flask import Flask, request, jsonify, send_from_directory, url_for
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from config import STORAGE_ROOT, HOST, PORT, ensure_storage_root
+import platform
+import psutil
+import shutil
+import importlib
 
 ensure_storage_root()
 
@@ -67,6 +71,104 @@ def build_command(cmd, input_path, output_path):
 def health():
     return jsonify({"status": "ok"})
 
+@app.route("/status", methods=["GET"])
+def status():
+    sys = platform.system()
+    cpu_percent = psutil.cpu_percent(interval=0.5)
+    vm = psutil.virtual_memory()
+    mem = {
+        "total": vm.total,
+        "used": vm.used,
+        "available": vm.available,
+        "percent": vm.percent,
+    }
+    gpus = []
+    try:
+        pynvml = importlib.import_module("pynvml")
+        pynvml.nvmlInit()
+        count = pynvml.nvmlDeviceGetCount()
+        for i in range(count):
+            h = pynvml.nvmlDeviceGetHandleByIndex(i)
+            name = pynvml.nvmlDeviceGetName(h)
+            try:
+                name = name.decode() if isinstance(name, (bytes, bytearray)) else str(name)
+            except Exception:
+                name = str(name)
+            uuid = pynvml.nvmlDeviceGetUUID(h)
+            try:
+                uuid = uuid.decode() if isinstance(uuid, (bytes, bytearray)) else str(uuid)
+            except Exception:
+                uuid = str(uuid)
+            util = pynvml.nvmlDeviceGetUtilizationRates(h)
+            meminfo = pynvml.nvmlDeviceGetMemoryInfo(h)
+            try:
+                enc_util, _ = pynvml.nvmlDeviceGetEncoderUtilization(h)
+            except Exception:
+                enc_util = None
+            try:
+                dec_util, _ = pynvml.nvmlDeviceGetDecoderUtilization(h)
+            except Exception:
+                dec_util = None
+            gpus.append({
+                "index": i,
+                "name": name,
+                "uuid": uuid,
+                "utilization_percent": float(getattr(util, "gpu", 0.0)),
+                "memory_used_mb": round(float(meminfo.used) / (1024 * 1024), 2),
+                "memory_total_mb": round(float(meminfo.total) / (1024 * 1024), 2),
+                "encoder_utilization_percent": enc_util,
+                "decoder_utilization_percent": dec_util,
+            })
+        try:
+            pynvml.nvmlShutdown()
+        except Exception:
+            pass
+    except Exception:
+        if shutil.which("nvidia-smi"):
+            encdec = {}
+            try:
+                dmon = subprocess.check_output(["nvidia-smi", "dmon", "-c", "1", "-s", "u"], text=True, stderr=subprocess.DEVNULL)
+                for line in dmon.strip().splitlines():
+                    if not line or line.startswith("#"):
+                        continue
+                    cols = [c for c in line.split() if c]
+                    if len(cols) >= 5:
+                        try:
+                            idx = int(cols[0])
+                            enc = float(cols[3])
+                            dec = float(cols[4])
+                            encdec[idx] = (enc, dec)
+                        except Exception:
+                            pass
+            except Exception:
+                encdec = {}
+            try:
+                q = ["nvidia-smi", "--query-gpu=index,name,uuid,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"]
+                out = subprocess.check_output(q, text=True, stderr=subprocess.DEVNULL)
+                for line in out.strip().splitlines():
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) >= 6:
+                        idx = int(parts[0])
+                        enc, dec = encdec.get(idx, (None, None))
+                        gpus.append({
+                            "index": idx,
+                            "name": parts[1],
+                            "uuid": parts[2],
+                            "utilization_percent": float(parts[3]),
+                            "memory_used_mb": float(parts[4]),
+                            "memory_total_mb": float(parts[5]),
+                            "encoder_utilization_percent": enc,
+                            "decoder_utilization_percent": dec,
+                        })
+            except Exception:
+                gpus = []
+    return jsonify({
+        "status": "ok",
+        "system": sys,
+        "cpu_percent": cpu_percent,
+        "memory": mem,
+        "gpus": gpus,
+    })
 @app.route("/upload", methods=["POST"])
 def upload():
     if "file" not in request.files:
