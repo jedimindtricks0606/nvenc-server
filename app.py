@@ -1,9 +1,22 @@
+# nvenc-server Flask application
+# Features:
+# - Default host/port from config: HOST=0.0.0.0, PORT=5000
+# - Command-line options:
+#   --port <int>        Override server port (default from config.py)
+#   --parallel          Allow multiple FFmpeg tasks to run in parallel
+#                       (by default tasks run serially to avoid resource contention)
+# - Concurrency control:
+#   When parallel is disabled, FFmpeg execution is wrapped by a global lock (EXEC_LOCK)
+#   When parallel is enabled, the lock is bypassed using contextlib.nullcontext
+# - Responses include duration_ms for both success and error, measuring end-to-end FFmpeg time
 import os
 import uuid
 import shlex
 import subprocess
 import time
 import threading
+import argparse
+from contextlib import nullcontext
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory, url_for
 from flask_cors import CORS
@@ -14,7 +27,8 @@ ensure_storage_root()
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
-EXEC_LOCK = threading.Semaphore(1)
+EXEC_LOCK = threading.Lock()
+ALLOW_PARALLEL = False
 
 def make_job_dir():
     job_id = uuid.uuid4().hex
@@ -88,7 +102,8 @@ def upload():
     except Exception:
         print(f"[upload] executing: {' '.join(cmd)}")
     try:
-        with EXEC_LOCK:
+        ctx = nullcontext() if ALLOW_PARALLEL else EXEC_LOCK
+        with ctx:
             start = time.perf_counter()
             r = subprocess.run(cmd, capture_output=True, text=True)
             elapsed_ms = int((time.perf_counter() - start) * 1000)
@@ -140,7 +155,8 @@ def process():
     except Exception:
         print(f"[process] job={job_id} executing: {' '.join(cmd)}")
     try:
-        with EXEC_LOCK:
+        ctx = nullcontext() if ALLOW_PARALLEL else EXEC_LOCK
+        with ctx:
             start = time.perf_counter()
             r = subprocess.run(cmd, capture_output=True, text=True)
             elapsed_ms = int((time.perf_counter() - start) * 1000)
@@ -159,5 +175,10 @@ def download(job_id, filename):
     return send_from_directory(str(directory), filename, as_attachment=True)
 
 if __name__ == "__main__":
-    app.run(host=HOST, port=PORT)
+    parser = argparse.ArgumentParser(description="nvenc-server")
+    parser.add_argument("--port", type=int, default=PORT, help="Server port (default from config)")
+    parser.add_argument("--parallel", action="store_true", help="Allow multiple FFmpeg tasks in parallel")
+    args = parser.parse_args()
+    ALLOW_PARALLEL = args.parallel
+    app.run(host=HOST, port=args.port)
 

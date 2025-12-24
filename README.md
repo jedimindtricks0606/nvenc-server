@@ -8,6 +8,14 @@
 - 启动后端：`python app.py`（监听 `0.0.0.0:5000`）
 - 启动前端开发服务器：`npm run dev -- --host --port 5173 --strictPort`
 
+### 启动参数
+- 指定端口（默认 `5000` 来自 `config.py`）：
+  - `python app.py --port 5001`
+- 允许并行执行多个导出任务（默认串行）：
+  - `python app.py --parallel`
+- 示例（自定义端口并开启并行）：
+  - `python app.py --port 5001 --parallel`
+
 ## 健康检查
 - `GET` `http://<后端IP>:5000/health` → `{"status":"ok"}`
 
